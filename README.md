@@ -4,7 +4,7 @@ ObjectSearch is a lightweight in memory search engine using Lucene.
 It allows you to use Lucene search engine query semantics over a collection of in-memory objects.
 
 ```csharp
-Console.WriteLine("Matching objects)");
+Console.WriteLine("Objects match: +big cat");
 foreach(var result in items.Search("+big cat"))
 {
     Console.WriteLine($"{result.Score} {JsonConvert.SerializeObject(result.Value)}");
