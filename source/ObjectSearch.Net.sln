@@ -2,7 +2,7 @@
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ObjectSearch.Net", "ObjectSearch.NET\ObjectSearch.Net.csproj", "{17CA5F34-05D3-468E-89F6-7C0F817AAC30}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ObjectSearch.Net", "ObjectSearch.Net\ObjectSearch.Net.csproj", "{17CA5F34-05D3-468E-89F6-7C0F817AAC30}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ObjectSearch.Net.Tests", "ObjectSearch.Net.Tests\ObjectSearch.Net.Tests.csproj", "{738834D6-DC25-4819-8397-F1E78843D383}"
 EndProject
