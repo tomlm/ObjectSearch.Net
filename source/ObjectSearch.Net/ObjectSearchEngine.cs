@@ -18,7 +18,9 @@ namespace ObjectSearch
         private const string OBJECTID = "_oid";
         public const string CONTENT = "content";
 
-        private Dictionary<string, object> _objectCache = new Dictionary<string, object>();
+        private Dictionary<string, object> _id2Obj = new Dictionary<string, object>();
+        private Dictionary<object, string> _obj2id = new Dictionary<object, string>();
+
         private Lucene.Net.Store.Directory _directory;
 
         public ObjectSearchEngine(Analyzer? analyzer = null)
@@ -34,6 +36,7 @@ namespace ObjectSearch
 
         public StandardQueryParser QueryParser { get; private set; }
 
+        #region AddObjects()
         /// <summary>
         /// AddObjects to search engine 
         /// </summary>
@@ -90,7 +93,7 @@ namespace ObjectSearch
         {
             if (typeof(T).Name.StartsWith("SearchResult`1"))
                 throw new ArgumentException($"{typeof(T).Name} is already a searchresult. You should use .SearchEngine property to issue a secondary query");
-            
+
             lock (_directory)
             {
                 using (var writer = new IndexWriter(_directory, new IndexWriterConfig(LuceneVersion.LUCENE_48, Analyzer)))
@@ -98,7 +101,7 @@ namespace ObjectSearch
                     var docs = new List<Document>();
                     foreach (var obj in objects)
                     {
-                        docs.Add(CreateDocument(obj, customFields));
+                        docs.Add(CreateNewDocument(obj, customFields));
                     }
 
                     writer.AddDocuments(docs);
@@ -108,7 +111,117 @@ namespace ObjectSearch
             }
             return this;
         }
+        #endregion
 
+        #region UpdateObjects()
+        /// <summary>
+        /// AddObjects to search engine 
+        /// </summary>
+        /// <param name="objects"></param>
+        /// <returns></returns>
+        public ObjectSearchEngine UpdateObjects(IEnumerable objects)
+            => UpdateObjects(objects, (obj, doc) => { });
+
+        /// <summary>
+        /// AddObjects to search engine
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="objects"></param>
+        /// <returns></returns>
+        public ObjectSearchEngine UpdateObjects<T>(IEnumerable<T> objects)
+            => UpdateObjects<T>(objects, (obj, doc) => { });
+
+        /// <summary>
+        /// AddObjects to search engine with ability to select the default content
+        /// </summary>
+        /// <param name="objects"></param>
+        /// <param name="contentSelector"></param>
+        /// <returns></returns>
+        public ObjectSearchEngine UpdateObjects(IEnumerable objects, Func<object, string> contentSelector)
+            => UpdateObjects(objects, (obj, doc) => doc.AddTextField("content", contentSelector(obj), Field.Store.NO));
+
+        /// <summary>
+        /// AddObjects to search engine with ability to select the default content
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="objects"></param>
+        /// <param name="contentSelector"></param>
+        /// <returns></returns>
+        public ObjectSearchEngine UpdateObjects<T>(IEnumerable<T> objects, Func<T, string> contentSelector)
+            => UpdateObjects<T>(objects, (obj, doc) => doc.AddTextField("content", contentSelector(obj), Field.Store.NO));
+
+        /// <summary>
+        /// AddObjects to search engine with custom fields
+        /// </summary>
+        /// <param name="objects">objects to add</param>
+        /// <param name="customFields">option action to allow you to add custom fields</param>
+        /// <returns></returns>
+        public ObjectSearchEngine UpdateObjects(IEnumerable objects, Action<object, Document> customFields)
+            => UpdateObjects(objects.OfType<object>(), customFields);
+
+        /// <summary>
+        /// AddObjects to search engine with custom fields
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="objects">objects to add</param>
+        /// <param name="customFields">optional action to allow you to add custom fields</param>
+        /// <returns></returns>
+        public ObjectSearchEngine UpdateObjects<T>(IEnumerable<T> objects, Action<T, Document> customFields)
+        {
+
+            lock (_directory)
+            {
+                using (var writer = new IndexWriter(_directory, new IndexWriterConfig(LuceneVersion.LUCENE_48, Analyzer)))
+                {
+                    foreach(var obj in objects)
+                    {
+                        var objectId = _obj2id[obj];
+                        var doc = IndexObject(objectId, obj, customFields);
+                        writer.UpdateDocument(new Term(OBJECTID, objectId), doc);
+                    }
+                }
+
+                Searcher = new IndexSearcher(DirectoryReader.Open(_directory));
+            }
+            return this;
+        }
+        #endregion
+
+        #region RemoveObjects()
+        /// <summary>
+        /// Remove an object from the index
+        /// </summary>
+        /// <param name="obj"></param>
+        /// <returns></returns>
+        public ObjectSearchEngine RemoveObjects(IEnumerable objs)
+        {
+            lock (_directory)
+            {
+                using (var writer = new IndexWriter(_directory, new IndexWriterConfig(LuceneVersion.LUCENE_48, Analyzer)))
+                {
+                    var docs = new List<Document>();
+                    var deleteQuery = new BooleanQuery();
+                    var objectIds = objs.OfType<object>().Select(o => _obj2id[o]).ToList();
+
+                    foreach (var termQuery in objectIds.Select(oid => new TermQuery(new Term(OBJECTID, oid))))
+                    {
+                        deleteQuery.Add(new BooleanClause(termQuery, Occur.SHOULD));
+                    }
+                    
+                    writer.DeleteDocuments(deleteQuery);
+
+                    objectIds.ForEach(objectId =>
+                    {
+                        _obj2id.Remove(_id2Obj[objectId]);
+                        _id2Obj.Remove(objectId);
+                    });
+                }
+
+                Searcher = new IndexSearcher(DirectoryReader.Open(_directory));
+            }
+            return this;
+        }
+        #endregion
 
         /// <summary>
         /// Search object for text.
@@ -148,7 +261,7 @@ namespace ObjectSearch
         public SearchResults<T> Search<T>(Query query, int n = int.MaxValue)
         {
             ArgumentNullException.ThrowIfNull(Searcher);
-            
+
             if (typeof(T).Name.StartsWith("SearchResult`1"))
                 throw new ArgumentException($"{typeof(T).Name} is already a SearchResult. You should use .SearchEngine property to issue a secondary query.");
 
@@ -169,24 +282,29 @@ namespace ObjectSearch
                 var doc = Searcher.Doc(scoreDoc.Doc);
                 var oid = doc.GetField(OBJECTID).GetStringValue();
 
-                searchResults.Add(new SearchResult<T>(this, scoreDoc.Score, (T)_objectCache[oid]!));
+                searchResults.Add(new SearchResult<T>(this, scoreDoc.Score, (T)_id2Obj[oid]!));
             }
             return searchResults;
         }
 
-        private Document CreateDocument<T>(T obj, Action<T, Document>? docSelector = null)
+        private Document CreateNewDocument<T>(T obj, Action<T, Document>? customFields = null)
         {
             ArgumentNullException.ThrowIfNull(obj);
-            var id = Guid.NewGuid().ToString("n");
-            _objectCache.Add(id, obj!);
+            var objectId = Guid.NewGuid().ToString("n");
+            _id2Obj[objectId] = obj;
+            _obj2id[obj] = objectId;
 
+            return IndexObject(objectId, obj, customFields);
+        }
+
+        private static Document IndexObject<T>(string objectId, T obj, Action<T, Document>? customFields = null)
+        {
             var doc = new Document();
-            doc.AddStringField(OBJECTID, id, Field.Store.YES);
+            doc.AddStringField(OBJECTID, objectId, Field.Store.YES);
 
             // if there is a docSelector call them so they can add custom fields.
-            if (docSelector != null)
-                docSelector(obj, doc);
-
+            if (customFields != null)
+                customFields(obj, doc);
 
             if (!doc.Fields.Any(f => f.Name == CONTENT))
                 doc.AddTextField(CONTENT, JToken.FromObject(obj).ToString(), Field.Store.NO);
@@ -201,7 +319,5 @@ namespace ObjectSearch
 
             return doc;
         }
-
-
     }
 }

@@ -79,6 +79,39 @@ namespace ObjectSearch.Net.Tests
                 Assert.AreEqual(searchEngine, result.SearchEngine);
         }
 
+
+        [TestMethod]
+        public void TestDeleteDocuments()
+        {
+            var searchEngine = new ObjectSearchEngine()
+                .AddObjects(Sentences);
+
+            var results = searchEngine.Search<string>("explor*");
+            Assert.AreEqual(13, results.Count);
+
+            searchEngine.RemoveObjects(results.Select(s => s.Value));
+            results = searchEngine.Search<string>("explor*");
+            Assert.AreEqual(0, results.Count);
+        }
+
+        [TestMethod]
+        public void TestUpdateDocuments()
+        {
+            var searchEngine = new ObjectSearchEngine() 
+                .AddObjects(Records);
+
+            var results = searchEngine.Search<RecordItem>("entrepreneurship");
+            Assert.AreEqual(1, results.Count);
+            results[0].Value.Title = "gronk";
+            searchEngine.UpdateObjects(new[] { results[0].Value });
+
+            var results2 = searchEngine.Search<RecordItem>("gronk");
+            Assert.AreEqual(results[0].Value, results2[0].Value);
+            Assert.AreEqual("gronk", results[0].Value.Title);
+            Assert.AreEqual("gronk", results2[0].Value.Title);
+
+        }
+
         private static List<string> Sentences = new List<string>()
         {
             "The ultimate guide to growing organic vegetables in your backyard.",
