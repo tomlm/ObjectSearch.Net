@@ -20,7 +20,7 @@ namespace ObjectSearch.Net.Tests
         [TestMethod]
         public void TestIndexStrings()
         {
-            var searchEngine = new ObjectSearch.ObjectSearchEngine();
+            var searchEngine = new ObjectSearchEngine();
             searchEngine.AddObjects(Sentences);
 
             var results = searchEngine.Search<string>("french");
@@ -31,20 +31,26 @@ namespace ObjectSearch.Net.Tests
         [TestMethod]
         public void TestIndexObjects()
         {
-            var searchEngine = new ObjectSearchEngine();
-            searchEngine.AddObjects(Records);
+            var searchEngine = new ObjectSearchEngine()
+                .AddObjects(Records);
 
             var results = searchEngine.Search<RecordItemBase>("entrepreneurship");
             Assert.AreEqual(Records.Single(r => r.Title.Contains("Entrepreneurship")), results.First().Value);
 
-            var results2 = searchEngine.Search<RecordItem>("insights", 1);
-            Assert.AreEqual(Records.Single(r => r.Description.Contains("insights")), results2.First().Value);
+            var results2 = searchEngine.Search<RecordItem>("vegan", 1);
+            Assert.AreEqual(Records.Single(r => r.Title.Contains("Vegan")), results2.First().Value);
+
+            var results3 = searchEngine.Search<RecordItem>("insights", 1);
+            Assert.AreEqual(Records.Single(r => r.Description.Contains("insights")), results3.First().Value);
+
+            Assert.AreEqual(results.SearchEngine, results2.SearchEngine);
+            Assert.AreEqual(results.SearchEngine, results3.SearchEngine);
         }
 
         [TestMethod]
         public void TestIndexMixedObjects()
         {
-            var searchEngine = new ObjectSearch.ObjectSearchEngine();
+            var searchEngine = new ObjectSearchEngine();
             searchEngine.AddObjects(Sentences);
             searchEngine.AddObjects(Records);
 
@@ -54,6 +60,23 @@ namespace ObjectSearch.Net.Tests
             var results2 = searchEngine.Search<string>("french", 1);
             var result2 = results2.First();
             Assert.AreEqual("Mastering the art of French cooking with step-by-step recipes.", result2.Value);
+        }
+
+        [TestMethod]
+        public void TestSearchEngineAccess()
+        {
+            var searchEngine = new ObjectSearchEngine();
+            searchEngine.AddObjects(Sentences);
+            searchEngine.AddObjects(Records);
+
+            var results = searchEngine.Search<RecordItem>("entrepreneurship");
+            var results2 = searchEngine.Search<string>("french", 1);
+            Assert.AreEqual(searchEngine, results.SearchEngine);
+            Assert.AreEqual(searchEngine, results2.SearchEngine);
+            foreach (var result in results)
+                Assert.AreEqual(searchEngine, result.SearchEngine);
+            foreach (var result in results2)
+                Assert.AreEqual(searchEngine, result.SearchEngine);
         }
 
         private static List<string> Sentences = new List<string>()

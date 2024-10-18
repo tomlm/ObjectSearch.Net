@@ -55,6 +55,14 @@ namespace ObjectSearch.Net.Tests
         }
 
         [TestMethod]
+        public void SearchCustomContent()
+        {
+            var results = Records.Search<RecordItem>("great empires", (record) => record.Title).ToList();
+            Assert.AreEqual(1, results.Count);
+            Assert.AreEqual(Records.Single(r => r.Title.Contains("Empire")), results.Single().Value);
+        }
+
+        [TestMethod]
         public void SearchCustomDocSelector()
         {
             var items = new List<object>();
@@ -64,6 +72,28 @@ namespace ObjectSearch.Net.Tests
             Assert.AreEqual(1, results.Count);
             Assert.AreEqual(Records.Single(r => r.Title.Contains("Empire")), results.Single().Value);
         }
+
+        [TestMethod]
+        public void TestSearchEngineAccess()
+        {
+            var results = Sentences.Search("entrepreneurship");
+            try
+            {
+                var xxx = results.Search("friend");
+                Assert.Fail("Should have thrown exception!");
+            }
+            catch (ArgumentException) 
+            { 
+            }
+            var results2 = results.SearchEngine.Search("french", 1);
+            Assert.AreEqual(results.SearchEngine, results2.SearchEngine);
+            var searchEngine = results.SearchEngine;
+            foreach (var result in results)
+                Assert.AreEqual(searchEngine, result.SearchEngine);
+            foreach (var result in results2)
+                Assert.AreEqual(searchEngine, result.SearchEngine);
+        }
+
 
         private static List<string> Sentences = new List<string>()
         {

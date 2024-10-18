@@ -35,28 +35,62 @@ namespace ObjectSearch
         public StandardQueryParser QueryParser { get; private set; }
 
         /// <summary>
-        /// AddObjects to search engine
+        /// AddObjects to search engine 
         /// </summary>
-        /// <param name="objects">objects to add</param>
-        /// <param name="docSelector">option doc selector to allow you to add custom fields</param>
+        /// <param name="objects"></param>
         /// <returns></returns>
-        public ObjectSearchEngine AddObjects(IEnumerable objects, Action<Document, object>? docSelector = null)
-        {
-            var objs = new List<object>();
-            foreach (var obj in objects)
-                objs.Add(obj);
-            return AddObjects(objs, docSelector);
-        }
+        public ObjectSearchEngine AddObjects(IEnumerable objects)
+            => AddObjects(objects, (obj, doc) => { });
 
         /// <summary>
         /// AddObjects to search engine
         /// </summary>
         /// <typeparam name="T"></typeparam>
-        /// <param name="objects">objects to add</param>
-        /// <param name="docSelector">optional doc selector to allow you to add custom fields</param>
+        /// <param name="objects"></param>
         /// <returns></returns>
-        public ObjectSearchEngine AddObjects<T>(IEnumerable<T> objects, Action<T, Document>? docSelector = null)
+        public ObjectSearchEngine AddObjects<T>(IEnumerable<T> objects)
+            => AddObjects<T>(objects, (obj, doc) => { });
+
+        /// <summary>
+        /// AddObjects to search engine with ability to select the default content
+        /// </summary>
+        /// <param name="objects"></param>
+        /// <param name="contentSelector"></param>
+        /// <returns></returns>
+        public ObjectSearchEngine AddObjects(IEnumerable objects, Func<object, string> contentSelector)
+            => AddObjects(objects, (obj, doc) => doc.AddTextField("content", contentSelector(obj), Field.Store.NO));
+
+        /// <summary>
+        /// AddObjects to search engine with ability to select the default content
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="objects"></param>
+        /// <param name="contentSelector"></param>
+        /// <returns></returns>
+        public ObjectSearchEngine AddObjects<T>(IEnumerable<T> objects, Func<T, string> contentSelector)
+            => AddObjects<T>(objects, (obj, doc) => doc.AddTextField("content", contentSelector(obj), Field.Store.NO));
+
+        /// <summary>
+        /// AddObjects to search engine with custom fields
+        /// </summary>
+        /// <param name="objects">objects to add</param>
+        /// <param name="customFields">option action to allow you to add custom fields</param>
+        /// <returns></returns>
+        public ObjectSearchEngine AddObjects(IEnumerable objects, Action<object, Document> customFields)
+            => AddObjects(objects.OfType<object>(), customFields);
+
+        /// <summary>
+        /// AddObjects to search engine with custom fields
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="objects">objects to add</param>
+        /// <param name="customFields">optional action to allow you to add custom fields</param>
+        /// <returns></returns>
+        public ObjectSearchEngine AddObjects<T>(IEnumerable<T> objects, Action<T, Document> customFields)
         {
+            if (typeof(T).Name.StartsWith("SearchResult`1"))
+                throw new ArgumentException($"{typeof(T).Name} is already a searchresult. You should use .SearchEngine property to issue a secondary query");
+            
             lock (_directory)
             {
                 using (var writer = new IndexWriter(_directory, new IndexWriterConfig(LuceneVersion.LUCENE_48, Analyzer)))
@@ -64,7 +98,7 @@ namespace ObjectSearch
                     var docs = new List<Document>();
                     foreach (var obj in objects)
                     {
-                        docs.Add(CreateDocument(obj, docSelector));
+                        docs.Add(CreateDocument(obj, customFields));
                     }
 
                     writer.AddDocuments(docs);
@@ -82,10 +116,8 @@ namespace ObjectSearch
         /// <param name="text"></param>
         /// <param name="n"></param>
         /// <returns></returns>
-        public IEnumerable<SearchResult> Search(string text, int n = int.MaxValue)
-        {
-            return Search(QueryParser.Parse(text, CONTENT), n);
-        }
+        public SearchResults<object> Search(string text, int n = int.MaxValue)
+            => Search<object>(text, n);
 
         /// <summary>
         /// Search objects using query
@@ -93,23 +125,8 @@ namespace ObjectSearch
         /// <param name="query">query</param>
         /// <param name="n"></param>
         /// <returns></returns>
-        public IEnumerable<SearchResult> Search(Query query, int n = int.MaxValue)
-        {
-            ArgumentNullException.ThrowIfNull(Searcher);
-            var topDocs = Searcher.Search(query, n);
-
-            return topDocs.ScoreDocs.Select(scoreDoc =>
-            {
-                var doc = Searcher.Doc(scoreDoc.Doc);
-                var oid = doc.GetField(OBJECTID).GetStringValue();
-
-                return new SearchResult()
-                {
-                    Score = scoreDoc.Score,
-                    Value = _objectCache[oid]
-                };
-            });
-        }
+        public SearchResults<object> Search(Query query, int n = int.MaxValue)
+            => Search<object>(query, n);
 
         /// <summary>
         /// Search objects of T using text
@@ -118,10 +135,8 @@ namespace ObjectSearch
         /// <param name="text"></param>
         /// <param name="n"></param>
         /// <returns></returns>
-        public IEnumerable<SearchResult<T>> Search<T>(string text, int n = int.MaxValue)
-        {
-            return Search<T>(QueryParser.Parse(text, CONTENT), n);
-        }
+        public SearchResults<T> Search<T>(string text, int n = int.MaxValue)
+            => Search<T>(QueryParser.Parse(text, CONTENT), n);
 
         /// <summary>
         /// Search objects of T using query
@@ -130,9 +145,12 @@ namespace ObjectSearch
         /// <param name="query"></param>
         /// <param name="n"></param>
         /// <returns></returns>
-        public IEnumerable<SearchResult<T>> Search<T>(Query query, int n = int.MaxValue)
+        public SearchResults<T> Search<T>(Query query, int n = int.MaxValue)
         {
             ArgumentNullException.ThrowIfNull(Searcher);
+            
+            if (typeof(T).Name.StartsWith("SearchResult`1"))
+                throw new ArgumentException($"{typeof(T).Name} is already a SearchResult. You should use .SearchEngine property to issue a secondary query.");
 
             if (typeof(T) != typeof(object))
             {
@@ -145,22 +163,22 @@ namespace ObjectSearch
 
             var topDocs = Searcher.Search(query, n);
 
-            return topDocs.ScoreDocs.Select(scoreDoc =>
+            var searchResults = new SearchResults<T>(this);
+            foreach (var scoreDoc in topDocs.ScoreDocs)
             {
                 var doc = Searcher.Doc(scoreDoc.Doc);
-                var id = doc.GetField(OBJECTID).GetStringValue();
-                return new SearchResult<T>()
-                {
-                    Score = scoreDoc.Score,
-                    Value = (T)_objectCache[id]
-                };
-            });
+                var oid = doc.GetField(OBJECTID).GetStringValue();
+
+                searchResults.Add(new SearchResult<T>(this, scoreDoc.Score, (T)_objectCache[oid]!));
+            }
+            return searchResults;
         }
 
         private Document CreateDocument<T>(T obj, Action<T, Document>? docSelector = null)
         {
+            ArgumentNullException.ThrowIfNull(obj);
             var id = Guid.NewGuid().ToString("n");
-            _objectCache.Add(id, obj);
+            _objectCache.Add(id, obj!);
 
             var doc = new Document();
             doc.AddStringField(OBJECTID, id, Field.Store.YES);
