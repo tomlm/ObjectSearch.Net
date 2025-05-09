@@ -173,7 +173,7 @@ namespace ObjectSearch
             {
                 using (var writer = new IndexWriter(_directory, new IndexWriterConfig(LuceneVersion.LUCENE_48, Analyzer)))
                 {
-                    foreach(var obj in objects)
+                    foreach (var obj in objects)
                     {
                         var objectId = _obj2id[obj];
                         var doc = IndexObject(objectId, obj, customFields);
@@ -207,7 +207,7 @@ namespace ObjectSearch
                     {
                         deleteQuery.Add(new BooleanClause(termQuery, Occur.SHOULD));
                     }
-                    
+
                     writer.DeleteDocuments(deleteQuery);
 
                     objectIds.ForEach(objectId =>
@@ -260,7 +260,7 @@ namespace ObjectSearch
         /// <returns></returns>
         public SearchResults<T> Search<T>(Query query, int n = int.MaxValue)
         {
-            ArgumentNullException.ThrowIfNull(Searcher);
+            if (Searcher == null) throw new ArgumentNullException(nameof(Searcher));
 
             if (typeof(T).Name.StartsWith("SearchResult`1"))
                 throw new ArgumentException($"{typeof(T).Name} is already a SearchResult. You should use .SearchEngine property to issue a secondary query.");
@@ -289,7 +289,7 @@ namespace ObjectSearch
 
         private Document CreateNewDocument<T>(T obj, Action<T, Document>? customFields = null)
         {
-            ArgumentNullException.ThrowIfNull(obj);
+            if (obj == null) throw new ArgumentNullException(nameof(Document));
             var objectId = Guid.NewGuid().ToString("n");
             _id2Obj[objectId] = obj;
             _obj2id[obj] = objectId;
